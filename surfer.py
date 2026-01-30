@@ -2,15 +2,14 @@ import os
 import sys
 import time
 import random
-
 import re
+
 from scapy.all import *
 import requests
 from requests.auth import HTTPBasicAuth, HTTPDigestAuth
 
 #clr
 G, Y, R, C, W = '\033[92m', '\033[93m', '\033[91m', '\033[96m', '\033[0m'
-
 hosts = {}
 
 def get_if():
@@ -72,12 +71,14 @@ def a_scan(ip):
             if s.connect_ex((ip, p)) == 0:
                 print(f"[{G}*{W}] Port {G}{p}{W} is OPEN")
                 found.append(p)
-    
     for p in found:
         if p in [80, 81, 8000, 8080]: h_grab(ip, p)
 
-#def snf(iface):
-    #custom time
+def start_sniff(iface):
+    val = input(f"\n{C}Sniff time in seconds (Enter for 60s): {W}")
+    sec = int(val) if val.strip().isdigit() else 60
+    print(f"[*] Sniffing for {Y}{sec}s{W} on {C}{iface}{W}...")
+    sniff(iface=iface, prn=pk_cb, store=0, timeout=sec)
 
 if __name__ == "__main__":
     if os.getuid() != 0:
@@ -85,12 +86,13 @@ if __name__ == "__main__":
 
     iface = get_if()
     print(f"\n{C}=== NetSurfer Scan [IFACE: {iface}] ==={W}")
-    print(f"[*] Sniffing 60s...")
-    sniff(iface=iface, prn=pk_cb, store=0, timeout=60)
+    start_sniff(iface)
 
     while True:
         if not hosts:
-            print(f"{R}[-] No targets.{W}"); break
+            print(f"{R}[-] No targets.{W}")
+            start_sniff(iface)
+            if not hosts: break
 
         print(f"\n{C}--- Targets ---{W}")
         ips = list(hosts.keys())
@@ -101,7 +103,7 @@ if __name__ == "__main__":
         idx = int(input(f"\n{C}Selection: {W}"))
         
         if idx == len(ips):
-            print(f"[*] Resniffing..."); sniff(iface=iface, prn=pk_cb, store=0, timeout=30)
+            start_sniff(iface)
             continue
         if idx == len(ips)+1: break
 
