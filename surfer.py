@@ -2,8 +2,9 @@ import os
 import sys
 import time
 import random
-import re
 
+import re
+import socket
 from scapy.all import *
 import requests
 from requests.auth import HTTPBasicAuth, HTTPDigestAuth
@@ -11,6 +12,21 @@ from requests.auth import HTTPBasicAuth, HTTPDigestAuth
 #clr
 G, Y, R, C, W = '\033[92m', '\033[93m', '\033[91m', '\033[96m', '\033[0m'
 hosts = {}
+
+
+#port
+def get_p():
+    lvls = {"B": [80, 81, 8080, 8000, 554, 21, 22, 23, 53, 139, 445, 1900, 5000, 5353, 8443, 1024, 32400, 49152, 54321, 3389, 3306, 5900, 8081], "E": [110, 143, 993, 995, 2049, 3000, 5432, 5672, 6379, 9000, 9200, 27017]}
+    if os.path.exists("ports.cfg"):
+        with open("ports.cfg", "r") as f:
+            for line in f:
+                line = line.split('#')[0].strip()
+                if not line: continue
+                if line.startswith("BASE:"):
+                    lvls["B"] = [int(p.strip()) for p in line.split(":")[1].split(",") if p.strip().isdigit()]
+                if line.startswith("EXT:"):
+                    lvls["E"] = [int(p.strip()) for p in line.split(":")[1].split(",") if p.strip().isdigit()]
+    return lvls
 
 def get_if():
     ifs = get_if_list()
@@ -59,25 +75,42 @@ def h_grab(ip, port):
         t = t.group(1).strip() if t else "No Title"
         srv = r.headers.get('Server', 'Unknown')
         print(f"    {G}>> HTTP {port}:{W} [{Y}{srv}{W}] Title: {C}{t}{W}")
-    except: print(f"    {R}>> HTTP {port}: Request failed{W}")
+    except: pass
 
-def a_scan(ip):
-    print(f"\n[*] Probing {G}{ip}{W} ports...")
-    ports = [80, 81, 443, 554, 8000, 8080]
+def do_scan(ip, p_list):
+    print(f"\n[*] Probing {G}{len(p_list)}{W} ports on {G}{ip}{W}...")
     found = []
-    for p in ports:
+    for p in p_list:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(0.5)
+            s.settimeout(0.3)
             if s.connect_ex((ip, p)) == 0:
                 print(f"[{G}*{W}] Port {G}{p}{W} is OPEN")
                 found.append(p)
     for p in found:
-        if p in [80, 81, 8000, 8080]: h_grab(ip, p)
+        if p in [80, 81, 8000, 8080, 8443, 8081]: h_grab(ip, p)
+    if not found: print(f"{Y}[!] No open ports found.{W}")
+
+def a_scan(ip):
+    p_data = get_p()
+    do_scan(ip, p_data["B"])
+    
+    while True:
+        print(f"\n{C}Next actions for {G}{ip}:{W}")
+        print(f"1) Extended Scan ({len(p_data['E'])} more ports)")
+        print(f"2) Custom Scan")
+        print(f"0) Back to targets")
+        
+        m = input(f"\n{C}Mode: {W}")
+        if m == "0": break
+        if m == "1": do_scan(ip, p_data["E"])
+        elif m == "2":
+            c_ports = [int(x.strip()) for x in input("Enter ports (e.g. 21,22): ").split(",") if x.strip().isdigit()]
+            do_scan(ip, c_ports)
 
 def start_sniff(iface):
-    val = input(f"\n{C}Sniff time in seconds (Enter for 60s): {W}")
-    sec = int(val) if val.strip().isdigit() else 60
-    print(f"[*] Sniffing for {Y}{sec}s{W} on {C}{iface}{W}...")
+    v = input(f"\n{C}Sniff time (Enter for 60s): {W}")
+    sec = int(v) if v.strip().isdigit() else 60
+    print(f"[*] Sniffing {Y}{sec}s{W} on {C}{iface}{W}...")
     sniff(iface=iface, prn=pk_cb, store=0, timeout=sec)
 
 if __name__ == "__main__":
@@ -90,7 +123,7 @@ if __name__ == "__main__":
 
     while True:
         if not hosts:
-            print(f"{R}[-] No targets.{W}")
+            print(f"{R}[-] No targets detected.{W}")
             start_sniff(iface)
             if not hosts: break
 
@@ -100,14 +133,14 @@ if __name__ == "__main__":
         print(f"{len(ips)}) {R}Rescan Network{W}")
         print(f"{len(ips)+1}) {R}Exit{W}")
 
-        idx = int(input(f"\n{C}Selection: {W}"))
+        idx = input(f"\n{C}Selection: {W}")
+        if not idx.isdigit(): continue
+        idx = int(idx)
         
         if idx == len(ips):
-            start_sniff(iface)
-            continue
+            start_sniff(iface); continue
         if idx == len(ips)+1: break
 
         t_ip = ips[idx]
         ch_ip(iface, t_ip)
         a_scan(t_ip)
-        input(f"\n{Y}Press Enter to return to target list...{W}")
